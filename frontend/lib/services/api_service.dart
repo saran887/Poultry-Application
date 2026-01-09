@@ -164,8 +164,8 @@ class Alert {
 class ApiService {
   static final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 15),
+    connectTimeout: const Duration(seconds: 5),
+    receiveTimeout: const Duration(seconds: 5),
     headers: {'Content-Type': 'application/json'},
   ));
 

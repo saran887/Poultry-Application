@@ -19,6 +19,7 @@ class ApiConfig {
   static const String alerts = '/alerts/latest';
   static const String login = '/auth/login';
   static const String users = '/auth/users';
+  static const String cameraStream = '/camera/video_feed';
   
   // Timeout configuration
   static const Duration timeout = Duration(seconds: 10);

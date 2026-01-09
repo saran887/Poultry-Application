@@ -14,6 +14,7 @@ class SocketService {
 
   final List<Function(SensorData)> _sensorListeners = [];
   final List<Function(EquipmentStatus)> _equipmentListeners = [];
+  final List<Function(String)> _cameraListeners = [];
   bool _isInitialized = false;
 
   void addSensorListener(Function(SensorData) listener) {
@@ -24,12 +25,20 @@ class SocketService {
     _equipmentListeners.add(listener);
   }
 
+  void addCameraListener(Function(String) listener) {
+    _cameraListeners.add(listener);
+  }
+
   void removeSensorListener(Function(SensorData) listener) {
     _sensorListeners.remove(listener);
   }
 
   void removeEquipmentListener(Function(EquipmentStatus) listener) {
     _equipmentListeners.remove(listener);
+  }
+
+  void removeCameraListener(Function(String) listener) {
+    _cameraListeners.remove(listener);
   }
 
   void initSocket({
@@ -52,14 +61,23 @@ class SocketService {
     print('🔌 Connecting to WebSocket at: $socketUrl');
 
     socket = IO.io(socketUrl, IO.OptionBuilder()
-      .setTransports(['websocket'])
-      .disableAutoConnect()
+      .setTransports(['websocket']) // Force WebSocket only for maximum speed
+      .enableAutoConnect()
+      .setExtraHeaders({'Connection': 'upgrade', 'Upgrade': 'websocket'})
+      .setReconnectionAttempts(20)
+      .setReconnectionDelay(2000)
       .build());
 
-    socket.connect();
-
     socket.onConnect((_) {
-      print('✅ Connected to WebSocket');
+      print('✅ Connected to WebSocket [ID: ${socket.id}]');
+    });
+
+    socket.onConnectError((err) {
+      print('⚠️ Socket Connection Error: $err');
+    });
+
+    socket.onReconnectAttempt((attempt) {
+      print('🔄 Socket Reconnection Attempt: $attempt');
     });
 
     socket.on('sensorUpdate', (data) {
@@ -78,8 +96,21 @@ class SocketService {
       }
     });
 
+    socket.on('cameraFrame', (data) {
+      for (var listener in _cameraListeners) {
+        listener(data as String);
+      }
+    });
+
     socket.onDisconnect((_) => print('❌ Disconnected from WebSocket'));
     socket.onConnectError((err) => print('⚠️ Connection error: $err'));
+  }
+
+  // High-speed equipment toggle via WebSocket for "Sudden Change"
+  void emitToggle(Map<String, dynamic> data) {
+    if (socket.connected) {
+      socket.emit('toggleEquipment', data);
+    }
   }
 
   void dispose() {

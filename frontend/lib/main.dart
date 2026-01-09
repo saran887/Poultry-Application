@@ -5,8 +5,10 @@ import 'screens/reports_screen.dart';
 import 'screens/users_screen.dart';
 import 'services/socket_service.dart';
 import 'services/api_service.dart';
+import 'services/notification_service.dart';
+import 'services/background_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const PoultryAutomationApp());
 }
@@ -25,16 +27,60 @@ class _PoultryAutomationAppState extends State<PoultryAutomationApp> {
   @override
   void initState() {
     super.initState();
+    _initializeApp();
     _checkLoginStatus();
   }
 
+  Future<void> _initializeApp() async {
+    try {
+      // 1. Initialize notifications first
+      await NotificationService().init();
+      print('✅ Notifications ready');
+
+      // 2. Refresh UI to show app is ready
+      if (mounted) {
+        setState(() => _isChecking = false);
+      }
+
+      // 3. Request permissions (crucial for Android 14 foreground)
+      await NotificationService().requestPermissions();
+      
+      // 4. Start background service only after we have permissions and app is foregrounded
+      await Future.delayed(const Duration(seconds: 2));
+      _initBackgroundService();
+    } catch (e) {
+      print('Init Error: $e');
+      if (mounted) setState(() => _isChecking = false);
+    }
+  }
+
+  Future<void> _initBackgroundService() async {
+    await Future.delayed(const Duration(seconds: 5));
+    try {
+      await AppBackgroundService.initializeService();
+      AppBackgroundService.start();
+      print('⚙️ Background Service Initialized and Started');
+    } catch (e) {
+      print('Background Service Init Error: $e');
+    }
+  }
+
   Future<void> _checkLoginStatus() async {
-    final isLoggedIn = await ApiService.checkSession();
-    if (mounted) {
-      setState(() {
-        _isLoggedIn = isLoggedIn;
-        _isChecking = false;
-      });
+    try {
+      final isLoggedIn = await ApiService.checkSession();
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = isLoggedIn;
+          _isChecking = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = false;
+          _isChecking = false;
+        });
+      }
     }
   }
 
@@ -59,19 +105,15 @@ class _PoultryAutomationAppState extends State<PoultryAutomationApp> {
         useMaterial3: true,
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF1F1F1F),
-        cardColor: const Color(0xFF292929),
         primaryColor: const Color(0xFF4AB08B),
-        fontFamily: 'PlusJakartaSans',
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF4AB08B),
-          background: Color(0xFF1F1F1F),
-          surface: Color(0xFF292929),
-          error: Color(0xFFD84040),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF4AB08B),
+          brightness: Brightness.dark,
+          surface: const Color(0xFF292929),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF1F1F1F),
           elevation: 0,
-          centerTitle: false,
         ),
         cardTheme: CardThemeData(
           color: const Color(0xFF292929).withOpacity(0.5),
@@ -80,23 +122,15 @@ class _PoultryAutomationAppState extends State<PoultryAutomationApp> {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: Color(0xFF737373), fontFamily: 'PlusJakartaSans'),
-          bodyLarge: TextStyle(color: Color(0xFFF2F2F2), fontFamily: 'PlusJakartaSans'),
-          titleMedium: TextStyle(
-            color: Color(0xFFF2F2F2),
-            fontWeight: FontWeight.w600,
-            fontFamily: 'PlusJakartaSans',
-          ),
-          titleLarge: TextStyle(
-            color: Color(0xFFF2F2F2),
-            fontWeight: FontWeight.w700,
-            fontFamily: 'PlusJakartaSans',
-          ),
-        ),
-        dividerColor: const Color(0xFF3D3D3D),
       ),
-      home: _isLoggedIn ? const MainScreen() : const LoginScreen(),
+      home: _isChecking 
+        ? const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF4AB08B))))
+        : (_isLoggedIn ? const MainScreen() : const LoginScreen()),
+      routes: {
+        '/login': (context) => const LoginScreen(),
+        '/reports': (context) => const ReportsScreen(),
+        '/users': (context) => const UsersScreen(),
+      },
     );
   }
 }
