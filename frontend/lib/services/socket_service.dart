@@ -61,7 +61,7 @@ class SocketService {
     print('🔌 Connecting to WebSocket at: $socketUrl');
 
     socket = IO.io(socketUrl, IO.OptionBuilder()
-      .setTransports(['websocket']) // Force WebSocket only for maximum speed
+      .setTransports(['polling', 'websocket']) // Allow polling fallback for better browser/mobile compatibility
       .enableAutoConnect()
       .setExtraHeaders({'Connection': 'upgrade', 'Upgrade': 'websocket'})
       .setReconnectionAttempts(20)

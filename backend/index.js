@@ -5,13 +5,13 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { spawn } = require('child_process');
 const path = require('path');
+const os = require('os');
 const sequelize = require('./config/database');
 const UserAuth = require('./models/UserAuth');
 const FarmOverview = require('./models/FarmOverview');
 const EquipmentStatus = require('./models/EquipmentStatus');
 const Alert = require('./models/Alert');
 const DailyStats = require('./models/DailyStats');
-const readline = require('readline');
 
 const app = express();
 const server = http.createServer(app);
@@ -76,7 +76,7 @@ io.on('connection', async (socket) => {
       order: [['updatedAt', 'DESC']]
     });
     if (status) {
-      socket.emit('equipmentUpdate', status);
+      socket.emit('equipmentUpdate', status.toJSON ? status.toJSON() : status);
     }
   } catch (err) {
     console.error('[Socket Error] Initial state send failed:', err.message);
@@ -89,16 +89,16 @@ io.on('connection', async (socket) => {
   // Handle high-speed equipment control via Socket.io for "Sudden Change"
   socket.on('toggleEquipment', async (data) => {
     try {
-      const EquipmentStatus = require('./models/EquipmentStatus');
       let status = await EquipmentStatus.findOne({ order: [['updatedAt', 'DESC']] });
       if (status) {
         await status.update({
           ...data,
           updatedAt: new Date()
         });
+        
+        console.log(`[Socket Control] Equipment status updated and broadcasted`);
         // Broadcast to all clients including sender for confirmation
-        io.emit('equipmentUpdate', status);
-        console.log(`[Socket Control] Equipment updated: ${JSON.stringify(data)}`);
+        io.emit('equipmentUpdate', status.toJSON ? status.toJSON() : status);
       }
     } catch (err) {
       console.error('[Socket Control Error]', err.message);
@@ -131,38 +131,6 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => {
   res.send('Server is up and running.');
 });
-
-// Ingestion Logic: Automatic mock data generation is DISABLED
-const startIngestion = () => {
-  console.log('[Ingestion] Automatic mock data generation is currently DISABLED.');
-  console.log('[Ingestion] Use the CLI below to enter data manually.');
-  
-  /* 
-  // Code preserved for future use:
-  const insertData = async () => {
-    try {
-      const now = new Date();
-      now.setMilliseconds(0);
-      
-      const records = [
-        { device_id: 1, value: parseFloat((25 + Math.random() * 10).toFixed(2)), recorded_at: now },
-        { device_id: 2, value: parseFloat((50 + Math.random() * 30).toFixed(2)), recorded_at: now },
-        { device_id: 3, value: parseFloat((20 + Math.random() * 80).toFixed(2)), recorded_at: now }
-      ];
-      
-      await FarmOverview.bulkCreate(records);
-      io.emit('sensorUpdate', {
-        temperature: records[0].value,
-        humidity: records[1].value,
-        waterLevel: records[2].value,
-        timestamp: now
-      });
-    } catch (err) {
-      console.error('[Ingestion Error]', err.message);
-    }
-  };
-  */
-};
 
 // Start Python Camera Stream Server
 const startPythonStream = () => {
@@ -226,9 +194,8 @@ const runAutomationLogic = async (temp, hum, water, io) => {
       });
     }
 
-    // Only run if Auto Mode is ON
-    if (!status.autoMode) return;
-
+    // Safety Automation runs even in Manual Mode
+    
     let changed = false;
     let updates = {};
 
@@ -266,68 +233,11 @@ const runAutomationLogic = async (temp, hum, water, io) => {
     if (changed) {
       await status.update(updates);
       console.log(`[Automation] Auto-updated equipment: ${JSON.stringify(updates)}`);
-      io.emit('equipmentUpdate', status);
+      io.emit('equipmentUpdate', status.toJSON ? status.toJSON() : status);
     }
   } catch (err) {
     console.error('[Automation Error]', err.message);
   }
-};
-
-// Manual Data Entry CLI
-const startManualCLI = () => {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: '\n[Manual Mock] Enter values (temp hum water) or "exit": '
-  });
-
-  console.log('\n--- MANUAL DATA ENTRY ENABLED ---');
-  console.log('Type three numbers separated by spaces to update sensors.');
-  console.log('Example: 25.5 60 85');
-  rl.prompt();
-
-  rl.on('line', async (line) => {
-    const input = line.trim();
-    if (input.toLowerCase() === 'exit') {
-      console.log('Exiting manual entry...');
-      rl.close();
-      return;
-    }
-
-    const [temp, hum, water] = input.split(' ').map(Number);
-
-    if (isNaN(temp) || isNaN(hum) || isNaN(water)) {
-      console.log('❌ Invalid input. Use format: temp humidity water (e.g. 26.5 55 90)');
-    } else {
-      try {
-        const now = new Date();
-        now.setMilliseconds(0);
-        
-        const records = [
-          { device_id: 1, value: temp, recorded_at: now },
-          { device_id: 2, value: hum, recorded_at: now },
-          { device_id: 3, value: water, recorded_at: now }
-        ];
-        
-        await FarmOverview.bulkCreate(records);
-        console.log(`✅ MANUALLY INSERTED: Temp: ${temp}, Hum: ${hum}, Water: ${water}`);
-        
-        // Emit update via Socket.io
-        io.emit('sensorUpdate', {
-          temperature: temp,
-          humidity: hum,
-          waterLevel: water,
-          timestamp: now
-        });
-
-        // Run Automation logic on backend for "Sudden Change"
-        await runAutomationLogic(temp, hum, water, io);
-      } catch (err) {
-        console.error('Error inserting manual data:', err.message);
-      }
-    }
-    rl.prompt();
-  });
 };
 
 // Seed default credentials
@@ -377,9 +287,7 @@ sequelize.sync({ alter: true })
   .then(async () => {
     console.log('PostgreSQL connected and synced');
     await seedDefaults();
-    startIngestion();
     startPythonStream();
-    startManualCLI();
   })
   .catch((err) => console.error('PostgreSQL connection error:', err));
 
@@ -457,59 +365,25 @@ app.use('/api/equipment', require('./routes/equipmentRoutes'));
 app.use('/api/stats', require('./routes/statsRoutes'));
 app.use('/api/alerts', require('./routes/alertRoutes'));
 
-// Global Error Handler (MUST be after all routes)
-app.use((err, req, res, next) => {
-  console.error('[Global Error Handler]', err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// 404 Handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Route not found',
-    path: req.url,
-    method: req.method
-  });
-});
-
-// Graceful Shutdown Handler
-const gracefulShutdown = (signal) => {
-  console.log(`\n[${signal}] Gracefully shutting down server...`);
-  server.close(() => {
-    console.log('[Shutdown] HTTP server closed');
-    sequelize.close().then(() => {
-      console.log('[Shutdown] Database connection closed');
-      process.exit(0);
-    });
-  });
-
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    console.error('[Shutdown] Forcing shutdown after timeout');
-    process.exit(1);
-  }, 10000);
-};
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Uncaught Exception Handler
-process.on('uncaughtException', (err) => {
-  console.error('[CRITICAL] Uncaught Exception:', err);
-  gracefulShutdown('UNCAUGHT_EXCEPTION');
-});
-
-// Unhandled Promise Rejection Handler
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[CRITICAL] Unhandled Promise Rejection at:', promise, 'reason:', reason);
-});
-
 server.listen(PORT, '0.0.0.0', () => {
+  // Get local IP address dynamically
+  const networkInterfaces = os.networkInterfaces();
+  let localIp = '127.0.0.1';
+  
+  for (const interfaceName in networkInterfaces) {
+    const interfaces = networkInterfaces[interfaceName];
+    for (const iface of interfaces) {
+      // Look for IPv4 and skip internal (127.0.0.1)
+      if (iface.family === 'IPv4' && !iface.internal) {
+        localIp = iface.address;
+        break;
+      }
+    }
+    if (localIp !== '127.0.0.1') break;
+  }
+
   console.log(`\n🚀 Server running on port ${PORT}`);
-  console.log(`📱 Mobile/Web access: http://192.168.0.104:${PORT}`);
+  console.log(`📱 Mobile/Web access: http://${localIp}:${PORT}`);
   console.log(`💻 Local access: http://localhost:${PORT}`);
   console.log(`\nWaiting for connections...\n`);
 });

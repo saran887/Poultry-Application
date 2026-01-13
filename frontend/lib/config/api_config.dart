@@ -5,7 +5,7 @@ class ApiConfig {
   // Example: 192.168.1.100, 192.168.0.105, etc.
   
   // Current configuration: Using your local network IP
-  static const String baseUrl = 'http://192.168.0.104:3000/api';
+  static const String baseUrl = 'http://192.168.0.107:3000/api';
   
   // Alternative: For Android Emulator use this instead
   // static const String baseUrl = 'http://10.0.2.2:3000/api';

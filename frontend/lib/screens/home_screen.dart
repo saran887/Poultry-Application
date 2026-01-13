@@ -316,19 +316,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
     
     try {
-      // Send sudden update via WebSocket (Faster than HTTP)
-      final Map<String, dynamic> updateData = {
-        'fanOn': fanNotifier.value,
-        'foggerOn': foggerNotifier.value,
-        'sprinklerOn': sprinklerNotifier.value,
-        'motorOn': motorNotifier.value,
-        'lightOn': lightNotifier.value,
-        'feederOn': feederNotifier.value,
-        'autoMode': autoModeNotifier.value,
-      };
+      // Create status object for update
+      final updatedStatus = EquipmentStatus(
+        fanOn: fanNotifier.value,
+        foggerOn: foggerNotifier.value,
+        sprinklerOn: sprinklerNotifier.value,
+        motorOn: motorNotifier.value,
+        lightOn: lightNotifier.value,
+        feederOn: feederNotifier.value,
+        autoMode: autoModeNotifier.value,
+      );
       
-      print('⚡ Sudden Sync: Emitting $equipment toggle');
-      SocketService().emitToggle(updateData);
+      print('🌐 Sending update via REST API: $equipment toggle');
+      final success = await ApiService.updateEquipmentStatus(updatedStatus);
+      
+      if (!success) {
+        throw Exception('API update failed');
+      }
+      
+      // Also notify socket server for instant broadcast if connected
+      // This is a backup to the backend's own broadcast
+      SocketService().emitToggle(updatedStatus.toJson());
+      
     } catch (e) {
       print('❌ Sync failed: $e');
       // Revert on failure

@@ -62,7 +62,7 @@ const updateEquipmentStatus = async (req, res) => {
     // Emit the update to all connected clients
     const io = req.app.get('socketio');
     if (io) {
-      io.emit('equipmentUpdate', status);
+      io.emit('equipmentUpdate', status.toJSON ? status.toJSON() : status);
     }
 
     res.json(status);
